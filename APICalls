@@ -1,0 +1,289 @@
+<?php
+/* This class sets up an API connection and sends requests */
+    class APICalls {
+        // Variables needed to connect
+        private $client_id;
+        private $client_secret;
+	      private $accessToken;
+	      private $profile_id;
+        
+        // The first functions are used by later functions depending on the connection type
+        // This is used when need to POST
+        function postRequest(string $url, array $fields, $headers){
+            // Url-ify the data for the POST
+            $fields_JSON = json_encode($fields);
+            try{
+                
+                
+                // Initialize curl session
+                $cSession = curl_init();
+                
+                // Set options
+                curl_setopt($cSession,CURLOPT_URL, $url);
+                curl_setopt($cSession,CURLOPT_POST, count($fields));
+                curl_setopt($cSession,CURLOPT_POSTFIELDS, $fields_JSON);
+                curl_setopt($cSession, CURLOPT_RETURNTRANSFER, true);
+                curl_setopt($cSession, CURLOPT_HTTPHEADER, $headers);
+                
+                // Execute POST
+                $result = curl_exec($cSession);
+            
+                //close connection
+                curl_close($cSession);
+                
+                return $result;
+            } catch (\Exception $e) {
+                exit(-1);
+            }
+        }
+        
+        // This is used when need to GET
+        function getRequest(string $url, string $return = null, $includeProfileId = true){
+            $headers = array('Content-Type: application/json',
+                                'Authorization: Bearer '.$this->accessToken,
+                                'Amazon-Advertising-API-ClientId: '.$this->client_id);
+                                
+            if($includeProfileId){
+                array_push($headers, 'Amazon-Advertising-API-Scope: '.$this->profile_id);
+            }
+                                
+            try{
+                // Initialize curl session
+                $cSession = curl_init($url);
+
+                // Set options
+                curl_setopt($cSession, CURLOPT_RETURNTRANSFER, true);
+                curl_setopt($cSession, CURLOPT_HTTPHEADER, $headers);
+                if($return == "headers"){
+                    //enable headers
+                    curl_setopt($cSession, CURLOPT_HEADER, true);
+                    //get only headers
+                    curl_setopt($cSession, CURLOPT_NOBODY, true);
+                }
+                
+                // Execute GET
+                $result = curl_exec($cSession);
+                $responseCode   = curl_getinfo($cSession, CURLINFO_HTTP_CODE);
+
+                // Check response
+                if(curl_errno($cSession))
+                {
+                    $error = curl_error($cSession);
+                    error_log("SI: Curl Error: $error");
+                    throw new Exception("SI: Curl Error: $error");
+                }
+                else
+                {
+                    if($responseCode == 307){
+                        $result = curl_getinfo($cSession);
+                    }
+                    else if($responseCode !== 200) {
+                        error_log("SI: Curl Error: Response Code = $responseCode". "\nURL:". $url);
+                        throw new Exception("SI: Curl Error: Response Code = $responseCode". "\nURL:". $url);
+                    }
+                 
+                    curl_close($cSession);
+                }
+                return $result;
+            } catch (\Exception $e) {
+                exit(-1);
+            }
+        }
+        
+        // This is used when need to PUT
+        function putRequest($url, $edits){
+            try{
+                $headers = array('Content-Type: application/json',
+                                'Accept: application/json',
+                                'Authorization: Bearer '.$this->accessToken,
+                                'Amazon-Advertising-API-Scope: '.$this->profile_id,
+                                'Amazon-Advertising-API-ClientId: '.$this->client_id,
+                                'Content-Length: ' . strlen($edits)
+                                );
+
+                // Initialize curl session
+                $cSession = curl_init($url);
+
+                // Set options
+                curl_setopt_array($cSession, array(
+                                        CURLOPT_HTTPHEADER     => $headers,
+                                        CURLOPT_RETURNTRANSFER => true,
+                                        CURLOPT_CUSTOMREQUEST  => "PUT",
+                                        CURLOPT_POSTFIELDS     => $edits,
+                                        ));
+
+                $response = curl_exec($cSession);
+                $responseCode   = curl_getinfo($cSession, CURLINFO_HTTP_CODE);
+                
+                // Check response
+                if(curl_errno($cSession))
+                {
+                    error_log("SI: Curl Error: $error");
+                    throw new Exception("SI: Curl Error: " . curl_error($cSession). "\nURL:". $url);
+                }
+                else
+                {
+                  if($responseCode !== 200 && $responseCode !== 207) {
+                      error_log("SI: Curl Error: Response Code = $responseCode". "\nURL:". $url);
+                      throw new Exception("SI: Curl Error: Response Code = $responseCode" . "\nURL:". $url);
+                  }
+                  curl_close($cSession);
+                }
+
+                return $response;
+            } catch (\Exception $e) {
+                exit(-1);
+            }
+        }
+        
+        // Following functions use the above functions to execute
+        // STEP 1: Get token to gain access
+        function getAccessTokenByRefreshToken(string $client_id, string $client_secret, string $refresh_token) {
+            
+            // Initialize values
+            $url = "https://api.amazon.com/auth/o2/token";
+            $header = "Content-Type:application/x-www-form-urlencoded;charset=UTF-8";
+            $this->client_id = $client_id;
+            $this->client_secret = $client_secret;
+            
+            // Create array
+            $fields = array(
+                'grant_type' => 'refresh_token',
+                'client_id' => urlencode($this->client_id),
+                'refresh_token' => urlencode($refresh_token),
+                'client_secret' => urlencode($this->client_secret)
+            );
+            
+                        try{
+                // Url-ify the data for the POST
+                $fields_string = "";
+                foreach($fields as $key=>$value) { 
+                    if (strlen($fields_string) != 0){$fields_string .= '&';}
+                    $fields_string .= $key.'='.$value; }
+                
+                // Initialize curl session
+                $cSession = curl_init();
+                
+                // Set options
+                curl_setopt($cSession,CURLOPT_URL, $url);
+                curl_setopt($cSession,CURLOPT_POST, count($fields));
+                curl_setopt($cSession,CURLOPT_POSTFIELDS, $fields_string);
+                curl_setopt($cSession, CURLOPT_RETURNTRANSFER, true);
+                //curl_setopt($cSession, CURLOPT_HTTPHEADER, $headers);
+                
+                // Execute POST
+                $result = curl_exec($cSession);
+            
+                //close connection
+                curl_close($cSession);
+                
+                return $result;
+            } catch (\Exception $e) {
+                exit(-1);
+            }
+        }
+        
+        // Set access token to be always used
+        function setAccessToken(string $accessToken){
+            $this->accessToken = $accessToken;
+        }
+        
+        // Set profile Id = will change with each client
+        function setProfile(string $profile_id){
+		    $this->profile_id = $profile_id;
+        }
+        
+        // Gets profile id using their merchant token
+        function getProfileIds($merchantToken = null){
+            $url = "https://advertising-api.amazon.com/v2/profiles";
+            
+            $profilesJSON = $this->getRequest($url, null, false);
+            $profiles = json_decode($profilesJSON);
+            
+            if($merchantToken == null){
+                return $profiles;
+            }
+            $profileArray = array();
+            foreach($profiles as $profile){
+                if($profile->accountInfo->id == $merchantToken){
+                    $profileInfo = array("Id"=>$profile->profileId,
+                                            "Country"=>$profile->countryCode,
+                                            "Type"=>$profile->accountInfo->type);
+                    array_push($profileArray, $profileInfo);
+                }
+            }
+
+            return $profileArray;
+        }
+        
+        // Get SP Campaigns that fulfill the params (can be blank to get all)
+        function getCampaigns($type, $params = ""){
+            if($type == 'sp'){$type = 'v2/'.$type;}
+            // Initialize values
+            $url = "https://advertising-api.amazon.com/".$type."/campaigns" . $params;
+
+            return $this->getRequest($url);
+        }
+        
+        // Edits the SP campaigns acc to the edits
+        function editCampaigns($type, string $edits){
+            // Initialize values
+            if($type == 'sp'){$type = 'v2/'.$type;}
+            $url = "https://advertising-api.amazon.com/".$type."/campaigns";
+            return $this->putRequest($url, $edits);
+        }
+        
+        // Request report types
+        function requestReport($type, $recordType, $reportDate, $metrics = "campaignName,impressions"){
+            $urlEnd = "/" . $recordType . "/report";
+            if($type == 'sp' || $type == 'sd'){$type = 'v2/'.$type;}
+            else if($type == 'sb'){$type = 'v2/hsa';}
+            else if($type == 'dsp'){$urlEnd = "/reports";}
+            $url = "https://advertising-api.amazon.com/".$type.$urlEnd;
+            $fields = array("reportDate"=>$reportDate,
+                             "metrics"=> $metrics  );
+            
+            $headers = array('Content-Type: application/json',
+                                'Authorization: Bearer '.$this->accessToken,
+                                'Amazon-Advertising-API-Scope: '.$this->profile_id,
+                                'Amazon-Advertising-API-ClientId: '.$this->client_id);
+            
+            $POSTresponseJSON = $this->postRequest($url, $fields, $headers);
+            $POSTresponse = json_decode($POSTresponseJSON);
+
+            $this->getReport($POSTresponse->reportId);
+            echo "\nAttempt finished";
+        }
+        
+        // Follow up after the request report -- I dont think this one is complete
+        function getReport($reportId){
+            $GETurl = "https://advertising-api.amazon.com/v2/reports/".$reportId;
+            $j = 60;
+            do{
+                sleep($j);
+                $GETresponseJSON = $this->getRequest($GETurl);
+                $GETresponse = json_decode($GETresponseJSON);
+                $j/1.5;
+            }while($GETresponse->status != "SUCCESS");
+            
+            $headers = $this->getRequest($GETresponse->location, "headers");
+            
+            $finalLocation = $headers['redirect_url'];
+            echo "\necho:" . $finalLocation;
+            
+            echo"\nAttempting to download";
+            
+            $hostfile = fopen($finalLocation, 'r');
+            $fh = fopen("out.json.gz", 'w');
+            
+            while (!feof($hostfile)) {
+                $output = fread($hostfile, 8192);
+                fwrite($fh, $output);
+            }
+               
+            fclose($hostfile);
+            fclose($fh);
+
+        }
+    }
+?>
